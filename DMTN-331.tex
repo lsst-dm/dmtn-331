@@ -1,0 +1,81 @@
+\documentclass[DM,lsstdraft,authoryear,toc]{lsstdoc}
+\input{meta}
+
+% Package imports go here.
+
+% Local commands go here.
+
+%If you want glossaries
+%\input{aglossary.tex}
+%\makeglossaries
+
+\title{Background matching via null-space projection}
+
+% This can write metadata into the PDF.
+% Update keywords and author information as necessary.
+\hypersetup{
+    pdftitle={Background matching via null-space projection},
+    pdfauthor={James F.Bosch},
+    pdfkeywords={}
+}
+
+% Optional subtitle
+% \setDocSubtitle{A subtitle}
+
+\input{authors}
+
+\setDocRef{DMTN-331}
+\setDocUpstreamLocation{\url{https://github.com/lsst-dm/dmtn-331}}
+
+\date{\vcsDate}
+
+% Optional: name of the document's curator
+% \setDocCurator{The Curator of this Document}
+
+\setDocAbstract{%
+Background matching is a family of algorithms for estimating the temporal backgrounds of astronomical images by using the differences between pairs of visits as the input data, since the vast majority of astrophysical sources disappear in those differences.  For $N$ images with $N$ different backgrounds, this only yields $N-1$ constraints, ensuring an underconstrained problem.  This technical note sketches out an approach that explicitly projects out the unconstrained linear combination of background models to be fit later after building a coadd, in order to avoid the problem of stitching together a reference image that that complicates most other background-matching methods.
+}
+
+% Change history defined here.
+% Order: oldest first.
+% Fields: VERSION, DATE, DESCRIPTION, OWNER NAME.
+% See LPM-51 for version number policy.
+\setDocChangeRecord{%
+  \addtohist{1}{YYYY-MM-DD}{Unreleased.}{Bosch}
+}
+
+
+\begin{document}
+
+% Create the title page.
+\maketitle
+% Frequently for a technote we do not want a title page  uncomment this to remove the title page and changelog.
+% use \mkshorttitle to remove the extra pages
+
+% ADD CONTENT HERE
+% You can also use the \input command to include several content files.
+
+\appendix
+
+\section{Acknowledgements}
+
+This material is based upon work supported in part by the National Science Foundation through Cooperative Agreements AST-1258333 and AST-2241526 and Cooperative Support Agreements AST-1202910 and AST-2211468 managed by the Association of Universities for Research in Astronomy (AURA), and the Department of Energy under Contract No.\ DE-AC02-76SF00515 with the SLAC National Accelerator Laboratory managed by Stanford University.
+Additional Rubin Observatory funding comes from private donations, grants to universities, and in-kind support from LSST-DA Institutional Members.
+
+% Include all the relevant bib files.
+% https://lsst-texmf.lsst.io/lsstdoc.html#bibliographies
+\section{References} \label{sec:bib}
+\renewcommand{\refname}{} % Suppress default Bibliography section
+\bibliography{local,lsst,lsst-dm,refs_ads,refs,books}
+
+% Make sure lsst-texmf/bin/generateAcronyms.py is in your path
+\section{Acronyms} \label{sec:acronyms}
+\input{acronyms.tex}
+% If you want glossary uncomment below -- comment out the two lines above
+%\printglossaries
+
+
+
+
+
+\end{document}
