@@ -50,6 +50,146 @@ Background matching is a family of algorithms for estimating the temporal backgr
 
 \mkshorttitle
 
+\section{Problem}
+
+Given $N$ dithered overlapping visits, we wish to estimate their non-astrophysical backgrounds.
+If we first warp all images to a common coordinate system (hereafter \emph{tract} coordinates), we can subtract pairs of images to remove nearly all astrophysical objects and hence provide a much cleaner image for background estimation, but this yields only $N-1$ constraints for $N$ background models.
+This means any realistically flexible background model will only be partially constrained by these difference pairs, and the goal of background matching is to be able to estimate this remainder on a coadd, where the signal-to-noise ratio of the astrophysical objects is higher.
+
+The standard approach is to select one visit as a \emph{reference image}, and defining all other backgrounds to it, such that a coadd built with those other backgrounds subtracted yields a coadd with just the reference image's background left in it.
+This approach runs into trouble at the edges of that reference image, leading to generalizations that involve somehow stitch together a continuous reference image from multiple visits heuristically.
+
+This technote attempts to avoid this by instead providing a rigorous formalism for background matching that does not give any particular visit special treatment.
+
+\section{Theory}
+
+Let $z_i$ be the warped pixel data for visit $i$, as flattened vector, and $V_i$ its noise variance matrix (assumed diagonal, for now).
+We will model the background via some linear model (e.g. splines or polynomials) that maps parameters $a_i$ to pixel values via a matrix $A_i$, such that the background-subtracted image is $z_i - A_i\alpha_i$.
+Note that $A_i$ is visit-dependent; this allows models to include amplifier pedestals, illumination corrections, or other basis functions that are defined most naturally in detector or focal-plane coordinates and have to be warped to tract coordinates.
+If we concatenate the data points and models for all images, we have a single vector $z$, block-diagonal matrices $V$ and $A$, and free parameter vector $\alpha$:
+\begin{align}
+	z      & = \left[\begin{array}{c}
+			                 z_0    \\
+			                 z_1    \\
+			                 \vdots \\
+			                 z_{N-1}
+		                 \end{array}\right]                 \\
+	V      & = \left[\begin{array}{c c c c}
+			                 V_0    & 0      & \hdots & 0       \\
+			                 0      & V_1    & \hdots & 0       \\
+			                 \vdots & \vdots & \ddots & 0       \\
+			                 0      & 0      & 0      & V_{N-1}
+		                 \end{array}\right] \\
+	A      & = \left[\begin{array}{c c c c}
+			                 A_0    & 0      & \hdots & 0       \\
+			                 0      & A_1    & \hdots & 0       \\
+			                 \vdots & \vdots & \ddots & 0       \\
+			                 0      & 0      & 0      & A_{N-1}
+		                 \end{array}\right] \\
+	\alpha & = \left[\begin{array}{c}
+			                 \alpha_0 \\
+			                 \alpha_1 \\
+			                 \vdots   \\
+			                 \alpha_{N-1}
+		                 \end{array}\right]
+\end{align}
+Binned pairwise differences $\Delta z$ are defined by another block matrix $P$:
+\begin{align}
+	\Delta z = Pz
+\end{align}
+Each row of $P$ corresponds to a binned (e.g. $64 \times 64$) superpixel, and has values of $1$ for the corresponding pixels of one visit, $-1$ for the corresponding pixels of another visit, and $0$ for all other visits and any pixel that is missing in either of the two visits it substracts.
+In the limit where all visits cover the entire region of interest and there are no missing pixels, the selection of $N-1$ pairs from $N$ visits is wholly arbitrary, as long as each visit appears in at least one pair, and there is
+no added value from including additional pairs, as they would be completely degenerate with other pairs.
+When boundaries and missing pixels are in play, choosing pairs to maximumize the number of nonzero elements of $P$ (i.e. prefer pairs with more usable overlap) is better.
+The number of pairs also needs to be $\approx N-1$ locally \emph{everywhere} to maximize how much we constrain the problem from the available information; this is potentially very different from only differencing $N-1$ pairs of visits overall.
+
+We can now write down the objective function we wish to optimize:
+\begin{align}
+	L & = \frac{1}{2}\left(\Delta z - P A \alpha\right)^T \left(P V P^T\right)^{-1} \left(\Delta z - P A \alpha\right) \\
+	  & = \frac{1}{2} r^T C^{-1} r                                                                                     \\
+	r & \equiv \Delta z - P A \alpha                                                                                   \\
+	C & \equiv P V P^T
+\end{align}
+This is a standard linear least squares problem, so the solution is nominally given by
+\begin{align}
+	\frac{d L}{d \alpha} & = 0 = -A^T P^T C^{-1} \left(\Delta z - P A \alpha\right)
+\end{align}
+\begin{align}
+	A^T P^T C^{-1} P A \alpha & = A^T P^T C^{-1} \Delta z                    \\
+	H \alpha                  & = g                 \label{eqn:H_alpha_eq_g}
+\end{align}
+\begin{align}
+	H & \equiv A^T P^T C^{-1} P A      \\
+	g & \equiv A^T P^T C^{-1} \Delta z
+\end{align}
+Unfortunately, $H$ is at least in general rank-deficient (semidefinite), and instead of finding the minimum norm solution (which would just correspond to pushing each background closer to zero), we want to separate the linear combinations of $\alpha$ that are well constrained from those that are not.
+This requires a rank-revealing factorization of $H$, and here we will use the spectral (eigenvector) decomposition:
+\begin{align}
+	H & = Q D Q^T \\
+	  & =
+	\left[
+		\begin{array}{c c}
+			Q_1 & Q_2
+		\end{array}
+		\right]
+	\left[
+		\begin{array}{c c}
+			D_1 & 0 \\
+			0   & 0
+		\end{array}
+		\right]
+	\left[
+		\begin{array}{c}
+			Q_1^T \\
+			Q_2^T
+		\end{array}
+		\right]
+\end{align}
+where $Q$ is orthogonal and $D$ is diagonal.
+We can now change variables from $\alpha$ to $\mu, \nu$ via
+\begin{align}
+	\mu    & \equiv Q_1^T \alpha \\
+	\nu    & \equiv Q_2^T \alpha \\
+	\alpha & = Q_1 \mu + Q_2 \nu
+\end{align}
+and insert into (\ref{eqn:H_alpha_eq_g}):
+\begin{align}
+	Q_1 D_1 \mu = g
+\end{align}
+$Q_2$ thus provides a projection onto the null space of $H$: $\nu$ is not constrained at all by these data points.
+
+This can easily be manipulated into our solution for $\alpha$:
+\begin{align}
+	\alpha & = Q_1 D_1^{-1} Q_1^T g + Q_2 \nu
+\end{align}
+i.e. we have parameterized our ignorance via $\nu$, after constraining what we could from the pairwise differences.
+
+We can now construct a background-subtracted coadd, by summing background-subtracted images with weights $w_i$
+\begin{align}
+	r_c & = \sum_i w_i \left( z_i - A_i \alpha_i \right)                                   \\
+	    & = \sum_i w_i \left( z_i - A_i Q_{i,1} D_1^{-1} Q_1^T g - A_i Q_{i,2} \nu \right)
+\end{align}
+where the notation $Q_{i,1}$ and $Q_{i,2}$ pulls out the rows of each column-block of $Q$ that correspond to a particular visit.
+
+The problem is now to constrain $\nu$ on this coadd using traditional background subtraction methods, e.g. masking out objects as well as we can and binning with some robust statistic.
+$\nu$ should have approximately as many degrees of freedom as a single visit's background model.
+
+The chief problem with this formalism is that it naively involves an extremely large matrix; if we wish to fit a smooth background on scales of $1$ degree, using spline functions with knots approximately $20$ arcseconds apart, we have $180 \times 180 = 32400$ free parameters per visit.
+With only $20$ visits, $H$ is a $648000 \times 648000$ matrix.
+
+Turning this formalism into a practical method will thus need to involve some way to avoid actually constructing $H$.
+Some options may include:
+
+\begin{itemize}
+	\item Direct implementation via general sparse or block-sparse matrix libraries.
+	\item Approaches that operate on matrices only via their products with vectors (but note that the most common such approach, preconditioned conjugate gradient, is not rank-revealing);
+	\item Direct analytic block factorization (e.g. via Gaussian elimination) of $H$ for some choice of $P$ (where we have considerable flexibility), taking advantage of the special structure of both $P$ and $A$.
+	\item Translation into an online or divide-and-conquer algorithm, in which we apply this formalism first to a pair of images, and then treat that two-visit coadd like a single visit in order to combine it with the next visit (etc).
+	\item Imposing new penalties or constraints on the unconstrained linear combinations represented by $\nu$.
+\end{itemize}
+
+A successful implementation may need to involve more than one of these approaches, as even a two-visit problem is large enough to be at the very edge of what we might consider solving with dense matrices.
+
 \appendix
 
 \section{Acknowledgements}
