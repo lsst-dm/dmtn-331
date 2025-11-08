@@ -123,19 +123,25 @@ This is a standard linear least squares problem, so the solution is nominally gi
 	g & \equiv A^T P^T C^{-1} \Delta z
 \end{align}
 Unfortunately, $H$ is at least in general rank-deficient (semidefinite), and instead of finding the minimum norm solution (which would just correspond to pushing each background closer to zero), we want to separate the linear combinations of $\alpha$ that are well constrained from those that are not.
-This requires a rank-revealing factorization of $H$, and here we will use the spectral (eigenvector) decomposition:
+This requires a rank-revealing factorization of $H$, and here we will use a column-pivoting QR factorization of $H^T$:
 \begin{align}
-	H & = Q D Q^T \\
+	H = Q R S^T
+\end{align}
+where $Q$ is orthogonal, $R$ is upper trapezoidal, and $S$ is a permutation matrix.
+
+Because H is symmetric, we can also write this as a lower-trapezoidal factorization, which we will do in block form:
+\begin{align}
+	H & = S R^T Q^T \\
 	  & =
 	\left[
 		\begin{array}{c c}
-			Q_1 & Q_2
+			S_1 & S_2
 		\end{array}
 		\right]
 	\left[
 		\begin{array}{c c}
-			D_1 & 0 \\
-			0   & 0
+			L & 0 \\
+			F & 0
 		\end{array}
 		\right]
 	\left[
@@ -143,9 +149,18 @@ This requires a rank-revealing factorization of $H$, and here we will use the sp
 			Q_1^T \\
 			Q_2^T
 		\end{array}
-		\right]
+	\right]         \\
+	  & =
+	\left(S_1 L + S_2 F\right) Q_1^T
 \end{align}
-where $Q$ is orthogonal and $D$ is diagonal.
+where $L$ is square and lower triangular, $F$ is rectangular and has no special structure, and
+\begin{align}
+	S_1^T S_1 & = I \\
+	S_2^T S_2 & = I \\
+	S_1^T S_2 & = 0 \\
+	S_2^T S_1 & = 0
+\end{align}
+
 We can now change variables from $\alpha$ to $\mu, \nu$ via
 \begin{align}
 	\mu    & \equiv Q_1^T \alpha \\
@@ -154,22 +169,26 @@ We can now change variables from $\alpha$ to $\mu, \nu$ via
 \end{align}
 and insert into (\ref{eqn:H_alpha_eq_g}):
 \begin{align}
-	Q_1 D_1 \mu = g
+	\left(S_1 L + S_2 F\right)\mu = g
 \end{align}
 $Q_2$ thus provides a projection onto the null space of $H$: $\nu$ is not constrained at all by these data points.
 
-This can easily be manipulated into our solution for $\alpha$:
+By multiplying on the left by $S_1^T$, we can solve for $\mu$ with backsubstitution:
 \begin{align}
-	\alpha & = Q_1 D_1^{-1} Q_1^T g + Q_2 \nu
+	L \mu = S_1^T g
 \end{align}
-i.e. we have parameterized our ignorance via $\nu$, after constraining what we could from the pairwise differences.
+Note that we do not need $F$ or $S_2$ at all.
+We have now parameterized our ignorance via $\nu$, after constraining what we could ($\mu$) from the pairwise differences:
+\begin{align}
+	\alpha = Q_1 L^{-1} S_1^T g + Q_2 \nu
+\end{align}
 
 We can now construct a background-subtracted coadd, by summing background-subtracted images with weights $w_i$
 \begin{align}
-	r_c & = \sum_i w_i \left( z_i - A_i \alpha_i \right)                                   \\
-	    & = \sum_i w_i \left( z_i - A_i Q_{i,1} D_1^{-1} Q_1^T g - A_i Q_{i,2} \nu \right)
+	r_c & = \sum_i w_i \left( z_i - A_i \alpha_i \right)                                 \\
+	    & = \sum_i w_i \left( z_i - A_i Q_{i,1} L^{-1} S_1^T g - A_i Q_{i,2} \nu \right)
 \end{align}
-where the notation $Q_{i,1}$ and $Q_{i,2}$ pulls out the rows of each column-block of $Q$ that correspond to a particular visit.
+where the notation $Q_{i,1}$ and $Q_{i,2}$ pulls out the rows of $Q_1$ and $Q_2$ that correspond to a particular visit.
 
 The problem is now to constrain $\nu$ on this coadd using traditional background subtraction methods, e.g. masking out objects as well as we can and binning with some robust statistic.
 $\nu$ should have approximately as many degrees of freedom as a single visit's background model.
