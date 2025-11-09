@@ -175,7 +175,7 @@ $Q_2$ thus provides a projection onto the null space of $H$: $\nu$ is not constr
 
 By multiplying on the left by $S_1^T$, we can solve for $\mu$ with backsubstitution:
 \begin{align}
-	L \mu = S_1^T g
+	\hat{\mu} & = L^{-1} S_1^T g \\
 \end{align}
 Note that we do not need $F$ or $S_2$ at all.
 We have now parameterized our ignorance via $\nu$, after constraining what we could ($\mu$) from the pairwise differences:
@@ -183,10 +183,11 @@ We have now parameterized our ignorance via $\nu$, after constraining what we co
 	\alpha = Q_1 L^{-1} S_1^T g + Q_2 \nu
 \end{align}
 
-We can now construct a background-subtracted coadd, by summing background-subtracted images with weights $w_i$
+We can now construct a background-subtracted coadd, by summing background-subtracted images with weights $W_i$ (represented here as a diagonal matrix):
 \begin{align}
-	r_c & = \sum_i w_i \left( z_i - A_i \alpha_i \right)                                 \\
-	    & = \sum_i w_i \left( z_i - A_i Q_{i,1} L^{-1} S_1^T g - A_i Q_{i,2} \nu \right)
+	r_c(\nu) & = \sum_{i=0}^{i < N} W_i \left( z_i - A_i \alpha_i \right)                            \\
+	         & = \sum_{i=0}^{i < N} W_i \left( z_i - A_i Q_{i,1} \hat{\mu} - A_i Q_{i,2} \nu \right)
+	\label{eqn:r_c}
 \end{align}
 where the notation $Q_{i,1}$ and $Q_{i,2}$ pulls out the rows of $Q_1$ and $Q_2$ that correspond to a particular visit.
 
@@ -195,6 +196,7 @@ $\nu$ should have approximately as many degrees of freedom as a single visit's b
 
 The chief problem with this formalism is that it naively involves an extremely large matrix; if we wish to fit a smooth background on scales of $1$ degree, using spline functions with knots approximately $20$ arcseconds apart, we have $180 \times 180 = 32400$ free parameters per visit.
 With only $20$ visits, $H$ is a $648000 \times 648000$ matrix.
+Furthermore, just constructing $H$ naively involves inverting $C$, which is in general an even larger matrix (since we want at least as many superpixels as model parameters).
 
 Turning this formalism into a practical method will thus need to involve some way to avoid actually constructing $H$.
 Some options may include:
