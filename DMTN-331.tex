@@ -211,6 +211,158 @@ Some options may include:
 
 A successful implementation may need to involve more than one of these approaches, as even a two-visit problem is large enough to be at the very edge of what we might consider solving with dense matrices.
 
+\section{Online algorithm}
+
+\label{sec:online-algorithm}
+
+When there are only two visits (we'll call them $z_k$ and $z_+$ for reasons that will become clear later) and we limit our attention to the binned superpixels where they overlap, the matrix $P$ has a particularly simple form:
+\begin{align}
+	P & = \left[
+		\begin{array}{c c}
+			E & -E
+		\end{array}
+		\right]
+\end{align}
+where $E$ is a block-diagonal rectangular matrix of ones and zeros that bins the tract pixel grid that corresponds to its columns into the superpixel grid of its rows.
+This makes $C$ diagonal:
+\begin{align}
+	C & = P V P^T                     \\
+	  & =
+	\left[
+		\begin{array}{c c}
+			E & -E
+		\end{array}
+		\right]
+	\left[
+		\begin{array}{c c}
+			V_k & 0   \\
+			0   & V_+ \\
+		\end{array}
+		\right]
+	\left[
+		\begin{array}{c}
+			E^T \\
+			-E^T
+		\end{array}
+	\right]                           \\
+	  & = E\left(V_k + V_+\right) E^T
+\end{align}
+i.e. just the sum of the binned variances.
+
+We can similarly expand out $P A$ as
+\begin{align}
+	PA & =
+	\left[
+		\begin{array}{c c}
+			E & -E
+		\end{array}
+		\right]
+	\left[
+		\begin{array}{c c}
+			A_k & 0   \\
+			0   & A_+ \\
+		\end{array}
+	\right]        \\
+	   & = E\left[
+		\begin{array}{c c}
+			A_k & - A_+
+		\end{array}
+		\right] \label{eqn:online-PA}
+\end{align}
+
+$H$ and $g$ are thus:
+\begin{align}
+	H & =
+	\left[
+		\begin{array}{c}
+			A_k^T \\
+			- A_+^T
+		\end{array}
+		\right]
+	E^T C^{-1} E
+	\left[
+		\begin{array}{c c}
+			A_k & - A_+
+		\end{array}
+		\right]
+	=
+	\left[
+		\begin{array}{c c}
+			A_k^T E^T C^{-1} E A_k   & - A_k^T E^T C^{-1} E A_+ \\
+			- A_+^T E^T C^{-1} E A_k & A_+^T E^T C^{-1} E A_+
+		\end{array}
+		\right]
+	\label{eqn:online-H} \\
+	g & = \left[
+		\begin{array}{c}
+			A_k^T \\
+			- A_+^T
+		\end{array}
+		\right] E^T C^{-1} \Delta z
+	=	\left[
+		\begin{array}{c}
+			A_k^T E^T C^{-1} \Delta z \\
+			- A_+^T E^T C^{-1} \Delta z
+		\end{array}
+		\right]
+	\label{eqn:online-g}
+\end{align}
+If we write these as explicit sums over superpixels $j$ with row-vectors $E_j$ and scalars $C_{j,j}$
+\begin{align}
+	H & = \sum_j \frac{1}{C_{j,j}} \left[
+		\begin{array}{c c}
+			A_k^T E_j^T E_j A_k   & - A_k^T E_j^T E_j A_+ \\
+			- A_+^T E_j^T E_j A_k & A_+^T E_j^T E_j A_+
+		\end{array}
+	\right]                               \\
+	g & = \sum_j \frac{1}{C_{j,j}} \left[
+		\begin{array}{c}
+			A_k^T E_j^T \Delta z \\
+			- A_+^T E_j^T \Delta z
+		\end{array}
+		\right]
+\end{align}
+it is clear that we can accumulate $H$ and $g$ one superpixel at a time, evaluating and binning the rows of the basis matrices $A$ that have support in that superpixel.
+\footnote{
+	Note that while it is tempting to move the $E_j$ factors out of the parentheses so the rest of the numerator can be moved outside the summation, this is not actually more efficient.
+	We expect each basis matrix row to only have support for a few superpixels, and hence computing the full unbinned basis matrices up front would be much more memory-intensive.
+}
+
+$H$ will still be at best unwieldy for dense linear algebra, but for basis functions with limited spatial support (e.g. splines and pedestals, but not polynomials) it should be quite sparse, and rank-revealing sparse QR factorizations are readily available, e.g. from the \texttt{Eigen} library.
+Accumulating $H$ as a list of (row, column, value) triplets in order to initialize a sparse matrix should be reasonably efficient, though it may be even better to accumulate into some other data structure that takes full advantage of the structure of $A$.
+
+In order to go from a factorization of $H$ to an online algorithm, we need to construct a background-subtracted coadd from our pair of images, and then treat that like a single-visit image so we can repeat the procedure.
+The $\nu$-parameterized two-visit coadd is given by (\ref{eqn:r_c}) with $N=2$, which we expand out here using $k$ and $+$ subscripts
+\begin{align}
+	r_c(\nu) & = W_k z_k + w_+ z_+ - \left(W_k A_k Q_{k,1} + W_+ A_+ Q_{+,1}\right)\hat{\mu} - \left(W_k A_k Q_{k,2} + W_+ A_+ Q_{+,2}\right)\nu
+\end{align}
+This is comprised of an image we can compute directly and a parameterized unknown background model, just like our single-visit images, so we can identify these substitutions for the next iteration:
+\begin{align}
+	z_{k+1} & \to W_k z_k + W_+ z_+ - \left(W_k A_k Q_{k,1} + W_+ A_+ Q_{+,1}\right)\hat{\mu} \\
+	A_{k+1} & \to W_k A_k Q_{k,2} + W_+ A_+ Q_{+,2}
+\end{align}
+with $\nu$ corresponding to the new $\alpha_{k+1}$.
+Note that we build the coadd over any pixels covered by \emph{either} visit, even though we have at most weak constraints on their backgrounds near the overlap region.
+The background parameters that correspond primarily to these areas should be automatically mapped to $\nu$ and hence left free for future iterations to constrain.
+
+The variance of the coadd $V_{k+1}$ can be determined by straightforward propagation of uncertainty:
+\begin{align}
+	V_{k+1} & \to W_k V_k W_k + W_+ V_+ W_+
+\end{align}
+This neglects the contribution to the variance from $\hat{\mu}$, which also depends on $z_k$ and $z_+$.
+This contribution would add off-diagonal elements to $V_{k+1}$, however, and it should be small, because any background models are by design constrained by many pixels.
+This approximation may be problematic just outside the regions where visits overlap, since the basis coefficients for the background models there are only weakly constrained by the neighboring overlap region.
+One way to mitigate this might be to raise the threshold for splitting the orthogonal matrix $Q$ that defines the boundary between $\mu$ and $\nu$, effectively punting more of the modeling to later iterations.
+
+With the new image $z_{k+1}$, its background model matrix $A_{k+1}$, and variance $V_{k+1}$, we can now repeat the full procedure with a new visit represented by $z_+$, and iterate until all visits overlapping the tract have been included.
+Once the full pixel area has been covered by at least one visit (or otherwise stops increasing), the number of degrees of freedom in the unconstrained background represented by $\nu$ should plateau.
+Unfortunately the complexity and spatial support of rows of the corresponding coadd model matrix $A$ will steadily increase, as the original basis functions from many different visits are tied together by the pairwise difference constraints into new linear combinations.
+This will slow down accumulation of $H$ and $g$ at each iteration and make $H$ at least slightly less sparse.
+
+While we have framed this algorithm as an incremental one, since it works on pairs of images it could work equally well on a binary tree, in which each original visit is paired with another and then pairs of coadds are combined.
+This yields the same number of overall combinations, but it provides more options for parallelization.
+It is unclear whether either variant provides any overall advantage in keeping the rows of $A$ spatially compact and the fill-factor of $H$ low.
+
 \appendix
 
 \section{Acknowledgements}
