@@ -363,6 +363,49 @@ While we have framed this algorithm as an incremental one, since it works on pai
 This yields the same number of overall combinations, but it provides more options for parallelization.
 It is unclear whether either variant provides any overall advantage in keeping the rows of $A$ spatially compact and the fill-factor of $H$ low.
 
+\section{Concrete basis functions for background modeling}
+
+\subsection{Tract-coordinate spines}
+
+We have generally assumed throughout this note so far that smooth background variation would be fit via a spline basis, as splines can be configured to be arbitrarily flexible while having limited support (which leads to a sparser $H$ matrix).
+While it would be possible to define the spline basis in detector coordinates, there is no real advantage to doing so, as this would make the basis functions more expensive to evaluate in tract coordinates without improving their ability to fit smooth features on the scales we want.
+
+Defining the spline basis in tract coordinates also makes the spline columns of $A$ the same for every visit, and hence the corresponding spline parameters for any pair of visits fully degenerate.
+We can thus immediately change variables for these parameters immediately to identify their well-constrained difference and unconstrained sum, and include only the former in $H$ and $g$, relegating the latter directly to $\nu$.
+This shrinks the number of spline parameters in these quantities by a factor of two.
+
+\subsection{Including the background-to-photometric ratio}
+
+Flattening an image for accurate photometry does not necessarily flatten it ideally for background subtraction.
+We represent this in the LSST pipelines via a \emph{background to photometric  ratio} calibration image, represented here as a diagonal matrix $F_i$.
+Each detector image should be multiplied by this ratio to flatten the background before traditional background subtraction, and then divided by it after the background has been subtracted.
+Because we want to build a coadd from images that are photometrically flat, for background matching we instead need to move this ratio into the background model basis:
+\begin{align}
+	r_i   & = F_i^{-1}\left(F_i z_i - A_i \alpha_i\right) = z_i - F_i^{-1} A_i \alpha_i = z_i - A^*_i \alpha_i \\
+	A^*_i & \equiv F_i^{-1} A_i
+\end{align}
+$F_i$ is most naturally defined in detector coordinates, not the tract pixel grid we will use for background matching.
+This means we should warp its \emph{inverse} to tract coordinates for use in scaling the background model basis.
+
+\subsection{Amplifier pedestals}
+
+Small instabilities in gains and other uncharacterized per-amplifier features can lead to background offsets between amplifiers.
+Even when the cause is actually multiplicative, it is not uncommon for the per-amp differences to be negligible for photometry but important for background estimation.
+
+Background matching should excel at handling these features, and we can include them in the background model as simple per-amplifier pedestals.
+A simple but expensive way of evaluating these in tract coordinates is to just warp an image of ones for each amplifier.
+When a background-to-photometric ratio is also in play, however, we can just warp per-amplifier cutouts of inverse ratio image for effectively no additional cost.
+
+\subsection{Degenerate Combinations}
+
+A combined basis that has terms for amplifier pedestals and trace-coordinate splines is at least somewhat degenerate, because splines can represent amplifier pedestal exactls on any superpixels that are sufficiently far from amplifier boundary.
+This should be handled naturally by our null-space projection algorithm, but it is possible the algorithm could be made more efficient by projecting out these degeneracies in the combined basis in advance.
+
+When a background-to-photometric ratio is also in play, this degeneracy could actually be used to instead make basis evaluation more efficient.
+If the features captured by the background-to-photometric ratio are small in amplitude and/or on scales larger than the splines, we could rely on the amplifier pedestals -- which can easily include the ratio -- to soak up most of the background, so that we could skip dividing the spline basis by the ratio.
+This could be encouraged by adding an L-2 penalty to the spline parameters, but this should not be necessary, and it must be done with extreme care, as it will change the eigenvalues of $H$ and hence the split between $\mu$ and $\nu$.
+We do not want to simply set unconstrained linear combinations of background parameters to zero.
+
 \appendix
 
 \section{Acknowledgements}
