@@ -64,7 +64,7 @@ This technote attempts to avoid this by instead providing a rigorous formalism f
 \section{Theory}
 
 Let $z_i$ be the warped pixel data for visit $i$, as flattened vector, and $V_i$ its noise variance matrix (assumed diagonal, for now).
-We will model the background via some linear model (e.g. splines or polynomials) that maps parameters $a_i$ to pixel values via a matrix $A_i$, such that the background-subtracted image is $z_i - A_i\alpha_i$.
+We will model the background via some linear model (e.g. splines or polynomials) that maps parameters $\alpha_i$ to pixel values via a matrix $A_i$, such that the background-subtracted image is $z_i - A_i\alpha_i$.
 Note that $A_i$ is visit-dependent; this allows models to include amplifier pedestals, illumination corrections, or other basis functions that are defined most naturally in detector or focal-plane coordinates and have to be warped to tract coordinates.
 If we concatenate the data points and models for all images, we have a single vector $z$, block-diagonal matrices $V$ and $A$, and free parameter vector $\alpha$:
 \begin{align}
