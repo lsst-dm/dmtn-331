@@ -63,7 +63,7 @@ This technote attempts to avoid this by instead providing a rigorous formalism f
 
 \section{Theory}
 
-Let $z_k$ be the warped pixel data for all visits in some superpixel $k$ defined in tract coordinates, as flattened, concatenated vector (i.e. row-blocks of $z_k$ correspond to differen visits), and the corresponding $V_k$ noise variance matrix (assumed diagonal).
+Let $z_k$ be the warped pixel data for all visits in some superpixel $k$ defined in tract coordinates, as a flattened, concatenated vector (i.e. row-blocks of $z_k$ correspond to different visits), and the corresponding $V_k$ noise variance matrix (assumed diagonal).
 We will model the background via some linear model (e.g. splines or polynomials) that maps parameters $\theta$ (also concatenated over all visits) to pixel values via a matrix $J_k$, such that the background-subtracted images for that superpixels are $z_k - J_k\theta$.
 Note that the rows of $J_k$ that correspond to one visit may be very different from the rows that correspond to another; this allows models to include amplifier pedestals, illumination corrections, or other basis functions that are defined most naturally in detector or focal-plane coordinates and have to be warped to tract coordinates.
 
@@ -86,9 +86,9 @@ Note that data points from different superpixels are strictly independent, which
 The series expansion of $\chi^2$ about $\theta=0$ is thus
 \begin{align}
 	\chi^2 & = \frac{1}{2} \sum_k z_k^T E_k^T C_k^{-1} E_k z_k
-	+ g^T \theta + \frac{1}{2}\theta^T H \theta                \\
-	g      & \equiv - \sum_k J_k^T E_k^T C_k^{-1} E_k z_k      \\
-	H      & \equiv - \sum_k J_k^T E_k^T C_k^{-1} E_k J_k
+	+ g^T \theta + \frac{1}{2}\theta^T H \theta                         \\
+	g      & \equiv - \sum_k J_k^T E_k^T C_k^{-1} E_k z_k \label{eqn:g} \\
+	H      & \equiv - \sum_k J_k^T E_k^T C_k^{-1} E_k J_k \label{eqn:H}
 \end{align}
 and the maximum-likelihood solution for $\theta$ is given by solving
 \begin{align}
@@ -164,7 +164,7 @@ The chief problem with this formalism is that it naively involves an extremely l
 With only $20$ visits, $H$ is a $648000 \times 648000$ matrix.
 
 When the background basis functions have limited spatial support, however, $H$ is sparse, and this is a reason to strongly prefer splines over polynomials.
-Sparse rank-revealing QR factorizations are readily available (e.g. from the \texttt{Eigen} C++ library).
+Sparse rank-revealing QR factorizations are readily available, e.g. from the \texttt{Eigen} C++ library \citep{eigenweb}.
 
 \section{Concrete basis functions}
 
@@ -175,6 +175,12 @@ While it would be possible to define the spline basis in detector coordinates, t
 With the splines in tract coordinates, we can evaluate them once in advance for each superpixel, and just adjust the binning for the missing pixels of each visit pair.
 Since the support of each spline basis function is easy to reason about, we can also efficiently skip the basis functions that are irrelevant for a superpixel (which is the vast majority).
 The advantage of using a tract-coordinate basis set is most pronounced when fitting the unconstrained linear combination $\nu$ on the coadd, as it saves us from actually having to coadd those basis functions at all.
+
+We generally want our background models to have fairly small spatial scales when we expect them to be constrained by image differences, but for the linear combinations $\nu$ we need to fit on the coadd, too much spatial flexibility is a problem, as it can easily lead to oversubtraction around large and/or bright objects.
+
+This can be mitigated by adding linear constraints or quadratic penalties on the weighted sum of the tract-coordinate splines.
+These could require that the sums of the splines at knots match the interpolation predictions from their summed neighbor knots (effectively dropping those knots in the combination) or penalize large derivatives or other metrics for sharp features.
+Both linear equality constraints and quadratic penalties can be used directly in our formalism, as another change of variables or additional terms added to $H$, respectively.
 
 \subsection{Including the background-to-photometric ratio}
 
@@ -203,13 +209,49 @@ Background matching should excel at handling these features, and we can include 
 A simple but expensive way of evaluating these in tract coordinates is to just warp an image of ones for each amplifier.
 When a background-to-photometric ratio is also in play, however, we can just warp per-amplifier cutouts of inverse ratio image for effectively no additional cost.
 
+\subsection{Sky Frames and PCA backgrounds}
+
+Full-focal plane background basis functions such as those of \citet{2017PASP..129k4502B} or the LSST pipeline's \texttt{sky} frames can be used directly as basis functions in this scheme; they just need to be warped and binned like the visit images.
+These basis functions are not at all spatially compact, but they are typically small in number, so when combined with a larger sparse basis like splines, they should not have much of an impact on performance.
+
 \subsection{Degenerate Combinations}
 
 A combined basis that has terms for amplifier pedestals and tract-coordinate splines is at least somewhat degenerate, because splines can represent amplifier pedestal exactly on any superpixels that are sufficiently far from an amplifier boundary.
 This should be handled naturally by null-space projection, but it is possible the algorithm could be made more efficient by projecting out these degeneracies in the combined basis in advance.
 
 When a background-to-photometric ratio is also in play, this degeneracy could actually be used to instead make basis evaluation more efficient.
-If the features captured by the background-to-photometric ratio are small in amplitude and/or on scales larger than the splines, we could rely on the amplifier pedestals -- which can easily include the ratio, and are relatively few in number -- to soak up most of the background, so that we could skip dividing the spline basis by the ratio and restore the visit-independence of some of the basis.
+If the features captured by the background-to-photometric ratio are small in amplitude and/or on scales larger than the splines, we could rely on the amplifier pedestals or background PCA terms -- which can easily include the ratio, and are relatively few in number -- to soak up most of the background, so that we could skip dividing the spline basis by the ratio and restore the visit-independence of some of the basis.
+
+\section{Implementation Concerns}
+
+Turning this formalism into an actual implementation will involve considerable development work.
+We expect roughly the following steps:
+\begin{enumerate}
+	\item
+	      Perform all warping, including PSF-matched and direct images (with mask and variance planes), any background PCA terms, and the inverse background-to-photometric ratio (separately by amplifier if amplifier pedestals are being used).
+	      This step can be parallelized over \texttt{\{patch, visit\}} or \texttt{\{patch, visit, detector\}}.
+	      In addition to writing out images, this step should write out a compact description of the background basis functions for that visit.
+	\item
+	      A \texttt{\{tract, band\}} gather step reads all of the compact overlap descriptions and writes out a description the aggregate background model for all visits overlapping the tract.
+	      This sets the overall size of $\theta$ and the assignment of different slices of it to the various basis functions for each visit.
+	\item
+	      A matrix-aggregation step loads all warped images and basis functions that overlap a \texttt{\{patch, band\}} one superpixel at a time, to accumulate the contributions to $g$ and $H$ from that patch, i.e. compute partial sums of (\ref{eqn:g}), (\ref{eqn:H}).
+	      For $g$ this is a simple array.
+	      For $H$, we should instead build a table of \texttt{(row, column, value)}, as these triplets are the most common way to initialize a sparse matrix.
+	\item
+	      Another \texttt{\{tract, band\}} gather step loads the per-patch partials of $H$ and $g$, sums them, performs the QR factorization, and solves for $\hat{\mu}$.
+	      The vector $Q_\mu\hat{\mu}$ and the $Q_\nu$ matrix are saved to disk.
+	\item
+	      A \texttt{\{patch, band\}} coaddition step again loads all warped images and basis functions, as well as $q_\mu\hat{\mu}$ and $Q_\nu$, to build the background-subtracted coadd and unconstrained background basis matrix, again one superpixel at a time.
+	\item
+	      A final \texttt{\{tract, band\}} step loads, masks, and bins the coadds and unconstrained basis matrices for all patches to fit for $\nu$ and subtract the remaining background.
+\end{enumerate}
+Each of these steps could be a \texttt{PipelineTask}, but a smaller number of tasks in which some do internal parallelization may have some advantages, especially if some of these steps need to be implemented in a compiled language anyway (and hence multithreading becomes more useful).
+
+One major open implementation question for any form of background matching is its relationship to difference-based artifact detection and masking.
+Background might be able to fit and subtract some features (e.g. diffuse ghosts) that we currently have to mask, but we still need some way to find and mask sharper artifacts that would be blurred out in the binned differences used by background matching, ideally before we perform background matching in order to prevent those artifacts from biasing the background estimate.
+A simple approach would be to just run artifact detection twice, once on the original backgrounds and configured to focus on small-scale artifacts, and again after background matching.
+Another approach might be to run background-matching first while using a robust statistic for binning the warp differences, in the hopes that will clip out sharp artifacts just enough to keep them from biasing the backgrounds.
 
 \appendix
 
