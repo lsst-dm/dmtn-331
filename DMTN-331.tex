@@ -56,7 +56,7 @@ Given $N$ dithered overlapping visits, we wish to estimate their non-astrophysic
 If we first warp all images to a common coordinate system (hereafter \emph{tract} coordinates), we can subtract pairs of images to remove nearly all astrophysical objects and hence provide a much cleaner image for background estimation, but this yields only $N-1$ constraints for $N$ background models.
 This means any realistically flexible background model will only be partially constrained by these difference pairs, and the goal of background matching is to be able to estimate this remainder on a coadd, where the signal-to-noise ratio of the astrophysical objects is higher.
 
-The standard approach is to select one visit as a \emph{reference image}, and defining all other backgrounds to it, such that a coadd built with those other backgrounds subtracted yields a coadd with just the reference image's background left in it.
+The standard approach is to select one visit as a \emph{reference image}, and define all other backgrounds relative to it, such that a coadd built with those other backgrounds subtracted yields a coadd with just the reference image's background left in it.
 This approach runs into trouble at the edges of that reference image, leading to generalizations that involve somehow stitch together a continuous reference image from multiple visits heuristically.
 
 This technote attempts to avoid this by instead providing a rigorous formalism for background matching that does not give any particular visit special treatment.
@@ -146,7 +146,8 @@ By multiplying on the left by $P_L^T$, we can solve for $\mu$ with backsubstitut
 \end{align}
 Note that we do not need $G$ or $P_G$ at all.
 
-Letting $\nu = 0$ for now, we can now construct a background-subtracted coadd, by summing background-subtracted images with per-superpixel weight matrices $W_k$ that simply adds all per-visit contributions to a pixel with weights that sum to unity\footnote{The superpixel structure is no longer important at this point, but reusing it saves us from having to change notation.}
+Letting $\nu = 0$ for now, we can now construct a background-subtracted coadd, by summing background-subtracted images with per-superpixel weight matrices $W_k$.
+These simply sum all per-visit contributions to a pixel with weights that sum (over all visits) to unity\footnote{The superpixel structure is no longer important at this point, but reusing it saves us from having to change notation.}
 \begin{align}
 	s_k & = W_k \left( z_k - J_k Q_\mu \hat{\mu} \right)
 \end{align}
@@ -216,7 +217,7 @@ These basis functions are not at all spatially compact, but they are typically s
 
 \subsection{Degenerate Combinations}
 
-A combined basis that has terms for amplifier pedestals and tract-coordinate splines is at least somewhat degenerate, because splines can represent amplifier pedestal exactly on any superpixels that are sufficiently far from an amplifier boundary.
+A combined basis that has terms for amplifier pedestals and tract-coordinate splines is at least somewhat degenerate, because splines can represent amplifier pedestals exactly on any superpixels that are sufficiently far from an amplifier boundary.
 This should be handled naturally by null-space projection, but it is possible the algorithm could be made more efficient by projecting out these degeneracies in the combined basis in advance.
 
 When a background-to-photometric ratio is also in play, this degeneracy could actually be used to instead make basis evaluation more efficient.
@@ -228,18 +229,18 @@ Turning this formalism into an actual implementation will involve considerable d
 We expect roughly the following steps:
 \begin{enumerate}
 	\item
-	      Perform all warping, including PSF-matched and direct images (with mask and variance planes), any background PCA terms, and the inverse background-to-photometric ratio (separately by amplifier if amplifier pedestals are being used).
+	      Perform all warping, including PSF-matched and direct images (with mask and variance planes, and the original background left in), any background PCA terms, and the inverse background-to-photometric ratio (separately by amplifier if amplifier pedestals are being used).
 	      This step can be parallelized over \texttt{\{patch, visit\}} or \texttt{\{patch, visit, detector\}}.
 	      In addition to writing out images, this step should write out a compact description of the background basis functions for that visit.
 	\item
-	      A \texttt{\{tract, band\}} gather step reads all of the compact overlap descriptions and writes out a description the aggregate background model for all visits overlapping the tract.
+	      A \texttt{\{tract, band\}} gather step reads all of the compact basis function descriptions and writes out a description of the aggregate background model for all visits overlapping the tract.
 	      This sets the overall size of $\theta$ and the assignment of different slices of it to the various basis functions for each visit.
 	\item
 	      A matrix-aggregation step loads all warped images and basis functions that overlap a \texttt{\{patch, band\}} one superpixel at a time, to accumulate the contributions to $g$ and $H$ from that patch, i.e. compute partial sums of (\ref{eqn:g}), (\ref{eqn:H}).
 	      For $g$ this is a simple array.
 	      For $H$, we should instead build a table of \texttt{(row, column, value)}, as these triplets are the most common way to initialize a sparse matrix.
 	\item
-	      Another \texttt{\{tract, band\}} gather step loads the per-patch partials of $H$ and $g$, sums them, performs the QR factorization, and solves for $\hat{\mu}$.
+	      Another \texttt{\{tract, band\}} gather step loads the per-patch partial sums of $H$ and $g$, sums them, performs the QR factorization, and solves for $\hat{\mu}$.
 	      The vector $Q_\mu\hat{\mu}$ and the $Q_\nu$ matrix are saved to disk.
 	\item
 	      A \texttt{\{patch, band\}} coaddition step again loads all warped images and basis functions, as well as $q_\mu\hat{\mu}$ and $Q_\nu$, to build the background-subtracted coadd and unconstrained background basis matrix, again one superpixel at a time.
@@ -249,7 +250,7 @@ We expect roughly the following steps:
 Each of these steps could be a \texttt{PipelineTask}, but a smaller number of tasks in which some do internal parallelization may have some advantages, especially if some of these steps need to be implemented in a compiled language anyway (and hence multithreading becomes more useful).
 
 One major open implementation question for any form of background matching is its relationship to difference-based artifact detection and masking.
-Background might be able to fit and subtract some features (e.g. diffuse ghosts) that we currently have to mask, but we still need some way to find and mask sharper artifacts that would be blurred out in the binned differences used by background matching, ideally before we perform background matching in order to prevent those artifacts from biasing the background estimate.
+Background matching might be able to fit and subtract some features (e.g. diffuse ghosts) that we currently have to mask, but we still need some way to find and mask sharper artifacts that would be blurred out in the binned differences used by background matching, ideally before we perform background matching (in order to prevent those artifacts from biasing the background estimate).
 A simple approach would be to just run artifact detection twice, once on the original backgrounds and configured to focus on small-scale artifacts, and again after background matching.
 Another approach might be to run background-matching first while using a robust statistic for binning the warp differences, in the hopes that will clip out sharp artifacts just enough to keep them from biasing the backgrounds.
 
