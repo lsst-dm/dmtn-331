@@ -124,7 +124,7 @@ Because H is symmetric, we can also write this as a lower-trapezoidal factorizat
 		\end{array}
 	\right]         \\
 	  & =
-	\left(P_L L + P_F F\right) Q_\mu^T
+	\left(P_L L + P_G G\right) Q_\mu^T
 \end{align}
 where $L$ is square and lower triangular and $G$ is rectangular with no special structure.
 
@@ -138,14 +138,13 @@ and instead solve for $\mu$
 \begin{align}
 	\left(P_L L + P_G G\right)\mu = g
 \end{align}
-$Q_\nu$ thus provides a projection onto the null space of $H$: $\nu$ is not constrained at all by the pairwise differences.
-
-By multiplying on the left by $P_L^T$, we can solve for $\mu$ with backsubstitution:
+by multiplying on the left by $P_L^T$ and then applying backsubstitution to $L$:
 \begin{align}
 	\hat{\mu} & = L^{-1} P_L^T g \\
 \end{align}
 Note that we do not need $G$ or $P_G$ at all.
 
+We can interpret $Q_\nu$ as the projection onto the null space of $H$: $\nu$ is not constrained at all by the pairwise differences.
 Letting $\nu = 0$ for now, we can now construct a background-subtracted coadd, by summing background-subtracted images with per-superpixel weight matrices $W_k$.
 These simply sum all per-visit contributions to a pixel with weights that sum (over all visits) to unity\footnote{The superpixel structure is no longer important at this point, but reusing it saves us from having to change notation.}
 \begin{align}
